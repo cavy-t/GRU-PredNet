@@ -11,6 +11,8 @@ from chainer import serializers
 from chainer.functions.loss.mean_squared_error import mean_squared_error
 import net
 
+import datetime
+
 parser = argparse.ArgumentParser(
 description='PredNet')
 parser.add_argument('--images', '-i', default='', help='Path to image list file')
@@ -38,6 +40,7 @@ parser.add_argument('--save', default=10000, type=int,
 parser.add_argument('--period', default=1000000, type=int,
                     help='Period of training (frames)')
 parser.add_argument('--test', dest='test', action='store_true')
+parser.add_argument('--losslog', default='losslog.txt')
 parser.set_defaults(test=False)
 args = parser.parse_args()
 
@@ -116,6 +119,8 @@ if args.images:
 else:
     sequencelist = load_list(args.sequences, args.root)
 
+starttime = datetime.datetime.now()
+
 if args.test == True:
     for seq in range(len(sequencelist)):
         imagelist = load_list(sequencelist[seq], args.root)
@@ -179,7 +184,11 @@ else:
                 write_image(model.y.data[0].copy(), 'images/' + str(count) + '_' + str(seq) + '_' + str(i) + 'y.jpg')
                 write_image(y_batch[0].copy(), 'images/' + str(count) + '_' + str(seq) + '_' + str(i) + 'z.jpg')
                 if args.gpu >= 0:model.to_gpu()
-                print('loss:' + str(float(model.loss.data)))
+                lossdata = float(model.loss.data)
+                print('loss:' + str(lossdata))
+                currenttime = datetime.datetime.now()
+                td = currenttime - starttime
+                with open(args.losslog, 'a') as f: f.write('%d\t%f\t%f\n'%(count, td.total_seconds(), lossdata))
 
             if (count%args.save) == 0:
                 print('save the model')
@@ -191,3 +200,6 @@ else:
             count += 1
         
         seq = (seq + 1)%len(sequencelist)
+currenttime = datetime.datetime.now()
+td = currenttime - starttime
+with open(args.losslog, 'a') as f: f.write('%d\t%f\t%f\n'%(count, td.total_seconds(), -1.0))
