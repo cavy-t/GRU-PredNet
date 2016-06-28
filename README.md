@@ -17,6 +17,7 @@ Comparing output-images between this version and original one about images in im
 * CUDA Toolkit 7.5  
 * cuDNN v5  
 
+## Usage
 1. Train  
 On a CPU  
 $ python main.py -i dataset/train_list.txt  
