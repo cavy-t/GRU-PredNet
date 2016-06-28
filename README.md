@@ -1,4 +1,4 @@
-# PredNet
+# GRU-PredNet
 This is a [GRU][] version of [PredNet][] based on [quadjr/PredNet](https://github.com/quadjr/PredNet).
 
 [PredNet]: http://arxiv.org/abs/1605.08104 "Lotter, William, Gabriel Kreiman, and David Cox. \"Deep Predictive Coding Networks for Video Prediction and Unsupervised Learning.\" arXiv preprint arXiv:1605.08104 (2016)."
@@ -31,4 +31,3 @@ $ python main.py -i dataset/test_list.txt --test --initmodel models/???.model
 Plase specify the model file with option --initialmodel.  
 Test result will be generated in images/ directory.  
 Image suffix means x (input), y (predicted).  
-
