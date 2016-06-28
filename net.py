@@ -117,8 +117,66 @@ class ConvLSTM(chainer.Chain):
         self.h = y
         return y
 
+class ConvGRU(chainer.Chain):
+    def __init__(self, width, height, in_channels, out_channels, batchSize = 1):
+        self.state_size = (batchSize, out_channels, height, width)
+        self.in_channels = in_channels
+        super(ConvGRU, self).__init__(
+            h_z=L.Convolution2D(out_channels, out_channels, 3, pad=1),
+            h_r=L.Convolution2D(out_channels, out_channels, 3, pad=1),
+            h_chr=L.Convolution2D(out_channels, out_channels, 3, pad=1),
+        )
+
+        for nth in range(len(self.in_channels)):
+            self.add_link('x_z' + str(nth), L.Convolution2D(self.in_channels[nth], out_channels, 3, pad=1, nobias=True))
+            self.add_link('x_r' + str(nth), L.Convolution2D(self.in_channels[nth], out_channels, 3, pad=1, nobias=True))
+            self.add_link('x_chr' + str(nth), L.Convolution2D(self.in_channels[nth], out_channels, 3, pad=1, nobias=True))            
+        self.reset_state()
+
+    def to_cpu(self):
+        super(ConvGRU, self).to_cpu()
+        if self.h is not None:
+            self.h.to_cpu()
+
+    def to_gpu(self, device=None):
+        super(ConvGRU, self).to_gpu(device)
+        if self.h is not None:
+            self.h.to_gpu(device)
+
+    def reset_state(self):
+        self.h = None
+
+    def __call__(self, x):
+        if self.h is None:
+            self.h = variable.Variable(
+                self.xp.zeros(self.state_size, dtype=x[0].data.dtype),
+                volatile='auto')
+         
+        zz = 0.
+        for nth in range(0, len(self.in_channels)):
+            zz += getattr(self, 'x_z' + str(nth))(x[nth])
+        zz += self.h_z(self.h)
+        zz = F.sigmoid(zz)
+        
+        rr = 0.
+        for nth in range(0, len(self.in_channels)):
+           rr += getattr(self, 'x_r' + str(nth))(x[nth])
+        rr += self.h_r(self.h)
+        rr = F.sigmoid(rr)
+         
+        hh = 0.
+        for nth in range(0, len(self.in_channels)):
+           hh += getattr(self, 'x_chr' + str(nth))(x[nth])
+        hh += self.h_chr(rr*self.h)
+        hh = F.tanh(hh)
+        
+        y = (1-zz)*self.h + zz*hh
+         
+        self.h = y
+        return y
+
 class PredNet(chainer.Chain):
-    def __init__(self, width, height, channels, r_channels = None, batchSize = 1):
+    def __init__(self, width, height, channels, r_channels = None, batchSize = 1, rnn_module='ConvGRU'):
         super(PredNet, self).__init__()
         if r_channels is None:
             r_channels = channels
@@ -131,6 +189,12 @@ class PredNet(chainer.Chain):
             w = w / 2
             h = h / 2
         
+        if rnn_module == 'ConvGRU':
+            rnn_module_func = ConvGRU
+        else:
+            rnn_module_func = ConvLSTM
+        self.rnn_module = rnn_module
+
         for nth in range(self.layers):
             if nth != 0:
                 self.add_link('ConvA' + str(nth), L.Convolution2D(channels[nth - 1] *2, channels[nth], 3, pad=1))
@@ -138,10 +202,10 @@ class PredNet(chainer.Chain):
             self.add_link('ConvP' + str(nth), L.Convolution2D(r_channels[nth], channels[nth], 3, pad=1))
             
             if nth == self.layers - 1:
-                self.add_link('ConvLSTM' + str(nth), ConvLSTM(self.sizes[nth][3], self.sizes[nth][2],
+                self.add_link(rnn_module + str(nth), rnn_module_func(self.sizes[nth][3], self.sizes[nth][2],
                                (self.sizes[nth][1] * 2, ), r_channels[nth]))
             else:
-                self.add_link('ConvLSTM' + str(nth), ConvLSTM(self.sizes[nth][3], self.sizes[nth][2],
+                self.add_link(rnn_module + str(nth), rnn_module_func(self.sizes[nth][3], self.sizes[nth][2],
                                (self.sizes[nth][1] * 2, r_channels[nth + 1]), r_channels[nth]))
                 
         self.reset_state()
@@ -161,7 +225,7 @@ class PredNet(chainer.Chain):
     def reset_state(self):
         for nth in range(self.layers):
             setattr(self, 'P' + str(nth), None)
-            getattr(self, 'ConvLSTM' + str(nth)).reset_state()
+            getattr(self, self.rnn_module + str(nth)).reset_state()
 
     def __call__(self, x):
         for nth in range(self.layers):
@@ -183,10 +247,10 @@ class PredNet(chainer.Chain):
         R = [None] * self.layers
         for nth in reversed(range(self.layers)):
             if nth == self.layers - 1:
-                R[nth] = getattr(self, 'ConvLSTM' + str(nth))((E[nth],))
+                R[nth] = getattr(self, self.rnn_module + str(nth))((E[nth],))
             else:
                 upR = F.unpooling_2d(R[nth + 1], 2, stride = 2, cover_all=False)
-                R[nth] = getattr(self, 'ConvLSTM' + str(nth))((E[nth], upR))
+                R[nth] = getattr(self, self.rnn_module + str(nth))((E[nth], upR))
 
             if nth == 0:
                 setattr(self, 'P' + str(nth), F.clipped_relu(getattr(self, 'ConvP' + str(nth))(R[nth]), 1.0))
